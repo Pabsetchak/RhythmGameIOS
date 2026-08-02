@@ -112,7 +112,12 @@ jobs:
           rm -rf tests
           find . -name "__pycache__" -type d -prune -exec rm -rf {} +
           find . -name "*.pyc" -delete
+          # Machine-specific, and regenerated with defaults on first launch.
           rm -f rhythms/SETTINGS.json
+          # Hit sounds are synthesized on first run. A CI checkout is clean,
+          # but a local Mac build in a working tree that has run the tests
+          # would otherwise ship a stale bank.
+          rm -rf assets/hits_v*
           echo "--- shipping ---"
           find . -type f | sort
 

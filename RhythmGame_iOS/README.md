@@ -59,24 +59,38 @@ first attempt.
 
 ### Via GitHub Actions (no Mac needed)
 
-1. Make this folder a git repo and push it to GitHub:
+The repository is already initialised and committed on `main`, with a
+`.gitignore` that keeps it at ~1 MB (the song audio, the PyInstaller output
+and an unrelated 42 MB toolkit in this folder are all excluded). All that's
+left is to publish it.
+
+1. Create an empty repo on GitHub — **don't** let it add a README or
+   `.gitignore`, or the first push will conflict.
+
+2. Point this repo at it and push:
 
 ```bash
-git init && git add . && git commit -m "iOS port" && git branch -M main
+git remote add origin https://github.com/<you>/<repo>.git && git push -u origin main
 ```
 
-2. Add your remote and push.
+3. Open **Actions → Build unsigned iOS IPA → Run workflow**. Optionally
+   override the pygame-ce version (only `2.5.5` and `2.5.6` are accepted).
 
-3. In the repo, open **Actions → Build unsigned iOS IPA → Run workflow**.
-   Optionally override the pygame-ce version.
+4. When it finishes, download the `*-unsigned.ipa` artifact from the run
+   summary.
 
-4. When it finishes, download the `*-unsigned.ipa` artifact from the run.
+The workflow has two jobs. `test` runs on Linux: it compiles every module and
+runs both suites headless. `build` runs on macOS and only starts if `test`
+passed — macOS runners bill at **10× the Linux rate** against the free monthly
+allowance (2,000 minutes on private repos, unlimited on public), so a broken
+commit costs about a minute instead of fifteen. Budget roughly 100–150 billed
+minutes per successful build on a private repo. The workflow runs only
+manually or on a `v*` tag, never on every push.
 
-macOS runners bill at **10× the Linux rate** against the free monthly
-allowance (2,000 minutes on private repos, unlimited on public). A build is
-roughly 10–15 minutes of wall time, so budget ~100–150 billed minutes per
-run on a private repo. The workflow only runs manually or on a `v*` tag for
-this reason.
+Before spending macOS time, `build` also asserts that the staged bundle
+actually contains `__main__.py` and the `screens/` package — without that
+check, a staging failure would produce an app that builds cleanly and then
+crashes on launch.
 
 ### On a Mac, if you have access to one
 
