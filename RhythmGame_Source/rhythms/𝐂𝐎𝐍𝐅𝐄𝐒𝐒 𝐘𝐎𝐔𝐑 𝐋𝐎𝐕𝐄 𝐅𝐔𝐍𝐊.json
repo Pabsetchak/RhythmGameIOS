@@ -1,0 +1,13 @@
+{
+    "recorded_at": "2026-07-15T19:47:52.549026",
+    "audio_file": "rhythms/\ud835\udc02\ud835\udc0e\ud835\udc0d\ud835\udc05\ud835\udc04\ud835\udc12\ud835\udc12 \ud835\udc18\ud835\udc0e\ud835\udc14\ud835\udc11 \ud835\udc0b\ud835\udc0e\ud835\udc15\ud835\udc04 \ud835\udc05\ud835\udc14\ud835\udc0d\ud835\udc0a.mp3",
+    "duration": 11.074354099997436,
+    "note_events": [
+        {
+            "type": "hold",
+            "key": "m",
+            "timestamp": 0.9582230999949388,
+            "duration": 0.2736265999992611
+        }
+    ]
+}

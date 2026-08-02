@@ -1,0 +1,261 @@
+name: Build unsigned iOS IPA
+
+# Produces an unsigned .ipa on a GitHub-hosted macOS runner, so no Mac is
+# needed locally. Download it from the run's Artifacts section and install it
+# with Sideloadly or AltStore, which re-sign it with your own Apple ID.
+#
+# The test job runs first on Linux (billed 1x) and gates the macOS job
+# (billed 10x), so a broken commit costs a minute instead of fifteen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pygame_version:
+        description: "pygame-ce version (only versions with a published template work)"
+        required: false
+        default: "2.5.6"
+  push:
+    tags:
+      - "v*"
+
+env:
+  APP_DIR: RhythmGame_iOS
+  ENTRY: main.py
+
+jobs:
+  # --------------------------------------------------------------------- #
+  # Cheap gate: does the app actually still work?
+  # --------------------------------------------------------------------- #
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pygame-ce
+        run: python -m pip install --upgrade pip "pygame-ce==2.5.6"
+
+      - name: Compile every module
+        run: python -m compileall -q "$APP_DIR"
+
+      - name: Run the test suites
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          set -euo pipefail
+          python "$APP_DIR/tests/test_data.py"
+          python "$APP_DIR/tests/test_screens.py"
+
+  # --------------------------------------------------------------------- #
+  # The expensive part
+  # --------------------------------------------------------------------- #
+  build:
+    needs: test
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    env:
+      PYGAME_VERSION: ${{ github.event.inputs.pygame_version || '2.5.6' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The template embeds a Python 3.13 XCFramework, so the toolchain that
+      # stages the sources should match it.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Show toolchain
+        run: |
+          python --version
+          xcodebuild -version
+          echo "Xcode path: $(xcode-select -p)"
+
+      - name: Install pygame-ios
+        run: python -m pip install --upgrade pip pygame-ios
+
+      - name: Check the requested pygame-ce version has a template
+        run: |
+          set -uo pipefail
+          URL=https://raw.githubusercontent.com/seekerluke/pygame-ios-templates/main/patches/pygame-ce.json
+          if ! curl -fsSL "$URL" -o /tmp/templates.json; then
+            echo "::warning::Could not fetch the template list; continuing anyway."
+            exit 0
+          fi
+          echo "Template list:"; cat /tmp/templates.json
+          python - "$PYGAME_VERSION" <<'PY'
+          import json, sys
+          wanted = sys.argv[1]
+          data = json.load(open("/tmp/templates.json"))
+          versions = data.get("supportedVersions", data) if isinstance(data, dict) else data
+          if isinstance(versions, dict):
+              versions = list(versions)
+          if wanted not in versions:
+              print(f"::error::pygame-ce {wanted} has no published iOS template. "
+                    f"Available: {', '.join(map(str, versions))}")
+              sys.exit(1)
+          print(f"OK: pygame-ce {wanted} has a template.")
+          PY
+
+      # pygame_ios copies the whole folder into the bundle, so strip anything
+      # that shouldn't ship on the device.
+      - name: Trim the app folder
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          rm -rf tests
+          find . -name "__pycache__" -type d -prune -exec rm -rf {} +
+          find . -name "*.pyc" -delete
+          rm -f rhythms/SETTINGS.json
+          echo "--- shipping ---"
+          find . -type f | sort
+
+      - name: Generate the Xcode project
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          pygame_ios . "$ENTRY" "$PYGAME_VERSION"
+          echo "--- tree after generation ---"
+          ls -la
+
+      - name: Confirm the app sources reached the bundle
+        # The entry script is renamed to __main__.py and the package folders
+        # are copied recursively. If either is missing the build would still
+        # succeed and then crash on launch, which is far harder to diagnose.
+        run: |
+          set -euo pipefail
+          STAGED=$(find "$APP_DIR" -type d -path "*app/pygame-ios" | head -n 1)
+          if [ -z "$STAGED" ]; then
+            echo "::error::Could not find the staged app directory."
+            find "$APP_DIR" -maxdepth 5 -type d | head -50
+            exit 1
+          fi
+          echo "Staged at: $STAGED"
+          for required in __main__.py app.py ui.py touch.py road.py screens/play.py screens/editor.py; do
+            if [ ! -f "$STAGED/$required" ]; then
+              echo "::error::Missing $required in the staged bundle."
+              find "$STAGED" -type f -name "*.py" | sort
+              exit 1
+            fi
+          done
+          echo "All required sources are present."
+
+      - name: Locate the Xcode project
+        id: locate
+        run: |
+          set -euo pipefail
+          PROJ=$(find "$APP_DIR" -maxdepth 4 -name "*.xcodeproj" -not -path "*/Pods/*" | head -n 1)
+          if [ -z "$PROJ" ]; then
+            echo "::error::No .xcodeproj was generated."
+            find "$APP_DIR" -maxdepth 4 -type d | head -50
+            exit 1
+          fi
+          SCHEME=$(xcodebuild -project "$PROJ" -list -json \
+            | python -c "import json,sys;print(json.load(sys.stdin)['project']['schemes'][0])")
+          echo "project=$PROJ" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Project: $PROJ"
+          echo "Scheme:  $SCHEME"
+
+      - name: Configure Info.plist
+        # Portrait-only (the whole UI is laid out for it) and file sharing on,
+        # so the app's folder appears in Files for moving songs and charts in
+        # and out without a desktop.
+        run: |
+          set -euo pipefail
+          PLIST=$(find "$APP_DIR" -name "Info.plist" -not -path "*/build/*" | head -n 1)
+          if [ -z "$PLIST" ]; then
+            echo "::warning::No Info.plist found; skipping configuration."
+            exit 0
+          fi
+          echo "Configuring $PLIST"
+          pb() { /usr/libexec/PlistBuddy -c "$1" "$PLIST" 2>/dev/null || true; }
+
+          pb "Delete :UIFileSharingEnabled"
+          pb "Add :UIFileSharingEnabled bool true"
+          pb "Delete :LSSupportsOpeningDocumentsInPlace"
+          pb "Add :LSSupportsOpeningDocumentsInPlace bool true"
+          pb "Delete :UIRequiresFullScreen"
+          pb "Add :UIRequiresFullScreen bool true"
+          pb "Delete :UIStatusBarHidden"
+          pb "Add :UIStatusBarHidden bool true"
+          pb "Delete :UIViewControllerBasedStatusBarAppearance"
+          pb "Add :UIViewControllerBasedStatusBarAppearance bool false"
+
+          pb "Delete :UISupportedInterfaceOrientations"
+          pb "Add :UISupportedInterfaceOrientations array"
+          pb "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait"
+          pb "Delete :UISupportedInterfaceOrientations~ipad"
+          pb "Add :UISupportedInterfaceOrientations~ipad array"
+          pb "Add :UISupportedInterfaceOrientations~ipad: string UIInterfaceOrientationPortrait"
+
+          echo "--- resulting plist ---"
+          plutil -p "$PLIST" | head -40
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project "${{ steps.locate.outputs.project }}" \
+            -scheme "${{ steps.locate.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package as .ipa
+        id: package
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app was produced."
+            ls -la "$PRODUCTS" || true
+            exit 1
+          fi
+          echo "Built: $APP"
+
+          # An .ipa is just a zip with the bundle under Payload/.
+          STAGE="$RUNNER_TEMP/stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/Payload"
+          cp -R "$APP" "$STAGE/Payload/"
+
+          NAME=$(basename "$APP" .app)
+          IPA="$RUNNER_TEMP/${NAME}-unsigned.ipa"
+          (cd "$STAGE" && zip -qry "$IPA" Payload)
+
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME}-unsigned" >> "$GITHUB_OUTPUT"
+          ls -lh "$IPA"
+
+      - name: Verify the bundle
+        run: |
+          set -uo pipefail
+          APP=$(find "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -n 1)
+          echo "--- signature ---"
+          codesign -dv "$APP" 2>&1 || echo "(unsigned, as intended)"
+          echo "--- python sources inside the bundle ---"
+          find "$APP" -name "main.py" -o -name "__main__.py" | head
+          echo "--- architectures ---"
+          BIN="$APP/$(basename "$APP" .app)"
+          [ -f "$BIN" ] && lipo -info "$BIN" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.ipa }}
+          retention-days: 30
+          if-no-files-found: error

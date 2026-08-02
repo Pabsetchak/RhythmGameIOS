@@ -1,0 +1,25 @@
+# Force LF for everything the CI runners execute.
+#
+# This repo is authored on Windows but built on Linux and macOS runners. A
+# workflow's `run:` blocks are shell scripts: if CRLF line endings reached
+# the runner, bash would fail on the stray carriage returns with errors like
+# "$'\r': command not found" — confusing, and a long way from the cause.
+
+* text=auto eol=lf
+
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.sh    text eol=lf
+*.py    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+
+# Binary: never touch these.
+*.png   binary
+*.mp3   binary
+*.ogg   binary
+*.wav   binary
+*.m4a   binary
+*.flac  binary
+*.exe   binary
+*.crchart binary

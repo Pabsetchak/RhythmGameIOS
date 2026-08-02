@@ -1,0 +1,25 @@
+hey, mycoal dough here!
+
+thanks for installing this mini-project of mine :)
+
+there's a few things you should know before starting:
+
+
+1) LEAVE ALL FILES INSIDE OF THE PARENT FOLDER. Do not take anything out of this folder! 
+
+
+
+2) To add tracks, you need 2 files:
+
+The mp3 track, and the json file with the rhythm. make sure they both have the same name (ie: song.mp3 + song.json / music.mp3 + music.json)
+
+Drag both into the "rhythms" folder!
+
+There should NEVER be a track named SETTINGS, as I use this name for the actual setting imports!
+
+
+3) When creating your own track, you can use as many keys as you want! 
+
+
+
+that's all for now, thanks for installing!

@@ -1,0 +1,472 @@
+{
+  "recorded_at": "2026-06-09T14:17:19.392266",
+  "audio_file": "rhythms/dtekd.mp3",
+  "duration": 19.734022617340088,
+  "note_events": [
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 0.26418519020080566
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 0.37984561920166016
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 0.5653057098388672
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 0.701404333114624
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 0.8932697772979736
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 1.0771937370300293
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 1.228339672088623
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 1.4279956817626953
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 1.5801000595092773
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 3.1148104667663574
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 3.3087668418884277
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 3.5809876918792725
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 3.7840747833251953
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 4.0064051151275635
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 4.108408212661743
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 4.29304313659668
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 4.485161066055298
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 4.5563108921051025
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 4.749163866043091
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 5.0713934898376465
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 5.335882186889648
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 5.621201753616333
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 5.933196783065796
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 6.3667144775390625
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 6.538566827774048
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 6.7216033935546875
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 6.894365072250366
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 7.036088228225708
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 7.197729110717773
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 7.371189117431641
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 7.543850421905518
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 7.695560455322266
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 7.847758531570435
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 7.9800004959106445
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 8.092104196548462
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 8.172762393951416
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 8.307627439498901
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 8.398640394210815
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 8.53127145767212
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 8.623920917510986
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 8.704988956451416
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 8.878057956695557
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 9.00980830192566
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 9.121515989303589
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 9.584404706954956
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 9.736489057540894
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 9.930203437805176
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 10.063307523727417
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 10.204836130142212
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 10.340809345245361
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 10.542257308959961
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 10.740143060684204
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 10.931617021560669
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 11.123767852783203
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 11.336604833602905
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 11.390650510787964
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 11.5332612991333
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 11.654860496520996
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 11.747968435287476
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 11.903420448303223
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 11.96398401260376
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 12.157504558563232
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 12.789995670318604
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 13.072376728057861
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 13.245665788650513
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 13.381048917770386
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 13.573775291442871
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 13.7263765335083
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 13.900634050369263
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 14.11294960975647
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 14.265112161636353
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 14.528423547744751
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 14.619998693466187
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 14.783207893371582
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 14.843750953674316
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 15.002111196517944
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 15.139204263687134
+    },
+    {
+      "type": "quickPress",
+      "key": "k",
+      "timestamp": 15.244494915008545
+    },
+    {
+      "type": "quickPress",
+      "key": "d",
+      "timestamp": 15.348646879196167
+    },
+    {
+      "type": "quickPress",
+      "key": "m",
+      "timestamp": 15.453381776809692
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 15.60606861114502
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 16.230698347091675
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 16.387048482894897
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 16.528565883636475
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 16.701607942581177
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 16.883058309555054
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 17.03611421585083
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 17.20749044418335
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 17.406046152114868
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 17.690513134002686
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 17.992371082305908
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 18.285557985305786
+    },
+    {
+      "type": "quickPress",
+      "key": "c",
+      "timestamp": 18.590146780014038
+    }
+  ]
+}
