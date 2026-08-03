@@ -364,6 +364,66 @@ def main():
         assert (lay.width, lay.height) == (430, 860), (lay.width, lay.height)
     check("degenerate display size", degenerate_layout)
 
+    # -- the template's window contract ------------------------------------ #
+    def window_exists_after_import():
+        """
+        The single most important invariant on device.
+
+        The template's main.m does:
+
+            ios_tick_func = PyObject_GetAttrString(main_module, "_ios_tick");
+            SDL_Window *window = get_default_pygame_window();
+            if (window) SDL_iPhoneSetAnimationCallback(window, 1, ios_tick, NULL);
+
+        so the frame callback is registered ONLY if a pygame window already
+        exists when __main__ finishes. No window means _ios_tick is never
+        called: a black screen, no crash, nothing in any log. This runs a
+        subprocess with the build target pinned to "ios" and asserts both
+        halves of that contract hold.
+        """
+        import json
+        import subprocess
+        import tempfile
+
+        probe = '''
+import sys, types, os, json
+# Pretend this is a packaged iOS build before anything reads the target.
+bc = types.ModuleType("build_config"); bc.TARGET = "ios"
+sys.modules["build_config"] = bc
+sys.path.insert(0, os.environ["APP_SRC"])
+import paths
+import main
+import pygame
+surface = pygame.display.get_surface()
+print("RESULT" + json.dumps({
+    "is_ios": paths.IS_IOS,
+    "has_tick": callable(getattr(main, "_ios_tick", None)),
+    "has_window": surface is not None,
+    "size": list(surface.get_size()) if surface is not None else None,
+}))
+'''
+        with tempfile.TemporaryDirectory() as home:
+            env = dict(os.environ,
+                       HOME=home, USERPROFILE=home,
+                       APP_SRC=SRC,
+                       SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+            out = subprocess.run([sys.executable, "-c", probe],
+                                 capture_output=True, text=True, env=env,
+                                 timeout=120)
+        line = next((l for l in out.stdout.splitlines()
+                     if l.startswith("RESULT")), None)
+        assert line, f"probe produced no result.\nstdout:\n{out.stdout}\nstderr:\n{out.stderr}"
+        got = json.loads(line[len("RESULT"):])
+
+        assert got["is_ios"] is True, f"pinned target ignored: {got}"
+        assert got["has_tick"] is True, "_ios_tick missing from __main__"
+        assert got["has_window"] is True, (
+            "no pygame window after import - the template would never "
+            f"register the frame callback: {got}")
+        assert got["size"] and got["size"][0] > 0 and got["size"][1] > 0, \
+            f"degenerate window {got['size']}"
+    check("window exists when import finishes", window_exists_after_import)
+
     # -- entry point contract ---------------------------------------------- #
     def entry_point():
         """

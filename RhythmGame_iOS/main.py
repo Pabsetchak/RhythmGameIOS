@@ -10,14 +10,31 @@ only for desktop, and on device every frame arrives as a call to _ios_tick.
 Keep the name and module-scope placement of _ios_tick as they are — the
 template detects it by name.
 
-Two rules this module follows, both learned the hard way:
+THE IMPORTANT PART: this module must create the pygame window *during
+import*, before it returns. The template's main.m does:
 
-  * Import does no graphics. Touching pygame.display before the template's
-    own SDL setup has finished can leave the screen black permanently. Every
-    display call happens inside a tick.
-  * Import does write a log file. If the screen is black there is no console
-    and no on-screen message to read, so diagnostics.py records progress to
-    Documents/boot_log.txt, readable in the Files app.
+    module = PyImport_ImportModule("runpy");
+    ... _run_module_as_main("__main__") ...
+    ios_tick_func = PyObject_GetAttrString(main_module, "_ios_tick");
+    SDL_Window *window = get_default_pygame_window();
+    if (window) {
+        SDL_iPhoneSetAnimationCallback(window, 1, ios_tick, NULL);
+    }
+
+So the callback is only registered when a pygame window already exists at
+the moment __main__ finishes. Defer the display to the first tick and there
+is no window, the `if (window)` fails, the callback is never registered, and
+_ios_tick is never called — a black screen with no crash and nothing in any
+log. Creating the display here is not an optimisation; it is the contract.
+
+For the same reason nothing may call set_mode again afterwards:
+SDL_iPhoneSetAnimationCallback is bound to that specific SDL_Window, so
+replacing it would orphan the callback. platform_compat.init_display()
+reuses an existing surface rather than making a new one.
+
+Import also writes a log file. If the screen is black there is no console
+and no on-screen message to read, so diagnostics.py records progress to
+Documents/boot_log.txt, readable in the Files app.
 """
 
 import os
@@ -35,6 +52,8 @@ _DESKTOP_PLATFORMS = ("win32", "linux", "linux2", "cygwin", "darwin")
 _app = None
 _error_text = None
 _splash_shown = False
+_surface = None
+_layout = None
 
 
 def _is_real_desktop():
@@ -125,6 +144,39 @@ def _boot():
     return instance
 
 
+def _prepare_display():
+    """
+    Create the SDL window during import.
+
+    Without this the template never registers the frame callback — see the
+    module docstring. This does the minimum needed to have a window on
+    screen; the rest of the app boots on the first tick.
+    """
+    global _surface, _layout
+    import pygame
+
+    import platform_compat
+
+    diagnostics.log("import: pygame.init()")
+    pygame.init()
+    diagnostics.log("import: creating the display")
+    _surface, _layout = platform_compat.init_display()
+    diagnostics.log(f"import: display created, surface = {_surface.get_size()}")
+
+    _draw_message(
+        "Starting…",
+        f"platform: {sys.platform}\n"
+        f"iOS: {paths.IS_IOS} ({paths.IOS_REASON})\n"
+        f"surface: {_surface.get_size()}\n\n"
+        "Loading…",
+        background=(10, 10, 20), color=(150, 150, 180))
+
+    win = pygame.display.get_surface()
+    diagnostics.log(f"import: window exists at end of import = {win is not None}")
+    if win is None:
+        diagnostics.log("!! no window - the frame callback will NOT be registered")
+
+
 def _ios_tick():
     """One frame. Called by the iOS run loop; must always return promptly."""
     global _app, _error_text, _splash_shown
@@ -135,18 +187,8 @@ def _ios_tick():
 
     try:
         if not _splash_shown:
-            # First contact with the display, now that the template's own
-            # setup has certainly finished.
             _splash_shown = True
             diagnostics.log("tick 1 reached - the frame callback IS firing")
-            _draw_message(
-                "Starting…",
-                f"platform: {sys.platform}\n"
-                f"iOS detected: {paths.IS_IOS}\n"
-                f"reason: {paths.IOS_REASON}\n\n"
-                "Loading…",
-                background=(10, 10, 20), color=(150, 150, 180))
-            return          # let this frame present before the heavy work
 
         if _app is None:
             _app = _boot()
@@ -195,5 +237,15 @@ if _is_real_desktop() and __name__ == "__main__":
         pass
     sys.exit(0)
 else:
-    diagnostics.log("taking the CALLBACK path - waiting for _ios_tick")
+    diagnostics.log("taking the CALLBACK path")
+    # The window must exist before this module returns, or the template never
+    # registers _ios_tick. Failing here is fatal to the app, so log it loudly
+    # rather than letting it pass silently. Only on device: importing this
+    # module on a desktop (as the tests do) must not open a window.
+    if paths.IS_IOS:
+        try:
+            _prepare_display()
+        except Exception:
+            diagnostics.exception("failed to create the display during import")
     diagnostics.log(f"_ios_tick defined at module scope: {'_ios_tick' in globals()}")
+    diagnostics.log("import complete - waiting for the frame callback")

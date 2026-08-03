@@ -107,6 +107,15 @@ def init_display():
     """
     import diagnostics
 
+    # Reuse a display that already exists. On iOS the window is created during
+    # import (see main.py) and SDL_iPhoneSetAnimationCallback is bound to that
+    # specific SDL_Window — calling set_mode again could replace it and orphan
+    # the frame callback, which would stop the app dead.
+    existing = pygame.display.get_surface()
+    if existing is not None and _usable(existing):
+        diagnostics.log(f"display: reusing existing surface {existing.get_size()}")
+        return existing, Layout(*existing.get_size())
+
     if not IS_IOS:
         surface = pygame.display.set_mode(DEV_SIZE, pygame.RESIZABLE)
         pygame.display.set_caption("Rhythm Game")

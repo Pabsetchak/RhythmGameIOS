@@ -292,19 +292,42 @@ than in the IPA:
 
 ### Black screen on launch
 
-Also addressed. Two causes were possible and both are handled:
+**Root cause: `main.py` must create the pygame window during import.**
 
-- If iOS wasn't detected, `main.py` took the desktop path and entered a
-  blocking loop, starving the run loop iOS owns. Detection now checks five
-  independent signals, and the blocking loop only runs on an explicit
-  desktop allowlist.
-- A startup exception used to be printed to a console you can't see. It is
-  now **drawn on the screen**, so you can read (or photograph) the traceback
-  on the device.
+The template's `main.m` runs `__main__` and then does:
 
-If you now see a screen reading **"Starting…"** that never changes, the frame
-callback isn't firing — that's a different problem from a crash, and the
-splash exists to tell the two apart.
+```c
+ios_tick_func = PyObject_GetAttrString(main_module, "_ios_tick");
+SDL_Window *window = get_default_pygame_window();
+if (window) {
+    SDL_iPhoneSetAnimationCallback(window, 1, ios_tick, NULL);
+}
+```
+
+The frame callback is registered **only if a pygame window already exists**
+when `__main__` finishes. Defer the display to the first tick and there is no
+window, `if (window)` fails, the callback is never registered, and
+`_ios_tick` is never called — a black screen with no crash and nothing in any
+log to explain it.
+
+So `_prepare_display()` runs at module scope, and nothing calls `set_mode`
+again afterwards: `SDL_iPhoneSetAnimationCallback` is bound to that specific
+`SDL_Window`, and replacing it would orphan the callback.
+`platform_compat.init_display()` reuses the existing surface instead.
+
+`tests/test_screens.py` guards this with a subprocess that pins the build
+target to iOS and asserts a window exists once import returns.
+
+Two other causes were closed off along the way:
+
+- `set_mode((0, 0))` can return a 0×0 surface on iOS, which draws pure black
+  and raises nothing. The real screen size is queried first and `Layout`
+  refuses to be degenerate.
+- If iOS wasn't detected, the desktop blocking loop ran and starved the run
+  loop. The target is now baked in at build time instead of detected.
+
+If you see **"Starting…"** and it never changes, the window was created but
+the callback still isn't firing — send `boot_log.txt`.
 
 ### Other
 
