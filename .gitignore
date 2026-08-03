@@ -33,6 +33,13 @@ hs_err_pid*.log
 # (~42 MB, 3150 files) and has nothing to do with the rhythm game.
 ECC/
 
+# Design and monetisation material for "Slap A Friend For Brainrots!", an
+# unrelated Roblox project that shares this folder. This repo is public, so
+# these stay local.
+SlapAFriend_DesignDoc.md
+SlapAFriend_GameDescription.md
+GamepassIcons/
+
 # ---------------------------------------------------------------------------
 # User content
 # ---------------------------------------------------------------------------
