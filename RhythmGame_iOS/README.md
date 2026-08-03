@@ -329,6 +329,19 @@ Two other causes were closed off along the way:
 If you see **"Starting…"** and it never changes, the window was created but
 the callback still isn't firing — send `boot_log.txt`.
 
+### "403 rate limit exceeded" during Generate the Xcode project
+
+`pygame_ios` asks `api.github.com` for the latest template release **with no
+credentials**. Unauthenticated API is 60 requests/hour *per IP*, and Actions
+runners share IPs across many customers, so this fails intermittently for
+reasons that have nothing to do with your project.
+
+Handled: the workflow now fetches the template itself using the runner's
+`GITHUB_TOKEN` (5,000/hour) and drops it in `pygame-ios-template/`, which
+`pygame_ios` skips downloading when present. If that pre-fetch fails for any
+reason it falls through to the old path, and the generate step retries three
+times with a 30-second gap.
+
 ### Other
 
 - **No `.xcodeproj` generated** — the pygame-ce version has no template. Only

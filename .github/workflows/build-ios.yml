@@ -143,11 +143,103 @@ jobs:
           print('build target pinned to', build_config.TARGET)
           "
 
+      - name: Pre-fetch the iOS template (authenticated)
+        # pygame_ios asks api.github.com for the latest template release with
+        # no credentials. Unauthenticated API is 60 requests/hour *per IP*,
+        # and Actions runners share IPs across many customers, so this fails
+        # intermittently with "403 rate limit exceeded" for reasons that have
+        # nothing to do with this project.
+        #
+        # The runner's GITHUB_TOKEN gets 5,000/hour, so fetch the template
+        # here instead. pygame_ios skips its own download when the folder
+        # already exists (FOLDER_NAME = "pygame-ios-template").
+        #
+        # Best-effort: any failure just falls through to pygame_ios trying it
+        # the usual way, so this can only help.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -uo pipefail
+          TEMPLATE_DIR="pygame-ios-template"
+          if [ -d "$TEMPLATE_DIR" ]; then
+            echo "Template already present; nothing to do."
+            exit 0
+          fi
+
+          API="https://api.github.com/repos/seekerluke/pygame-ios-templates/releases/latest"
+          if ! curl -fsSL \
+                 -H "Authorization: Bearer $GH_TOKEN" \
+                 -H "Accept: application/vnd.github+json" \
+                 "$API" -o "$RUNNER_TEMP/release.json"; then
+            echo "::warning::Authenticated release query failed; pygame_ios will try itself."
+            exit 0
+          fi
+
+          ASSET="pygame-ios-template-${PYGAME_VERSION}.zip"
+          echo "Assets in the latest release:"
+          ASSET="$ASSET" python -c "import json,os;d=json.load(open(os.environ['RUNNER_TEMP']+'/release.json'));print('\n'.join('  '+str(a.get('name')) for a in d.get('assets',[])))"
+
+          URL=$(ASSET="$ASSET" python -c "import json,os;d=json.load(open(os.environ['RUNNER_TEMP']+'/release.json'));print(next((a['browser_download_url'] for a in d.get('assets',[]) if a.get('name')==os.environ['ASSET']),''))")
+          if [ -z "$URL" ]; then
+            echo "::warning::No asset named $ASSET in the latest release; falling through."
+            exit 0
+          fi
+          echo "Downloading $ASSET"
+
+          if ! curl -fsSL "$URL" -o "$RUNNER_TEMP/template.zip"; then
+            echo "::warning::Template download failed; falling through."
+            exit 0
+          fi
+
+          # The archive may or may not wrap everything in a single top-level
+          # directory, so unpack to a staging area and normalise.
+          rm -rf "$RUNNER_TEMP/tpl" && mkdir -p "$RUNNER_TEMP/tpl"
+          if ! unzip -q "$RUNNER_TEMP/template.zip" -d "$RUNNER_TEMP/tpl"; then
+            echo "::warning::Template archive would not unpack; falling through."
+            exit 0
+          fi
+
+          entries=$(ls -A "$RUNNER_TEMP/tpl" | wc -l | tr -d ' ')
+          only=$(ls -A "$RUNNER_TEMP/tpl" | head -1)
+          if [ "$entries" = "1" ] && [ -d "$RUNNER_TEMP/tpl/$only" ]; then
+            mv "$RUNNER_TEMP/tpl/$only" "$TEMPLATE_DIR"
+          else
+            mv "$RUNNER_TEMP/tpl" "$TEMPLATE_DIR"
+          fi
+
+          # Only keep it if it looks like a real template; a wrong shape here
+          # would be worse than letting pygame_ios do the download.
+          if [ -z "$(find "$TEMPLATE_DIR" -maxdepth 3 -name '*.xcodeproj' -o -maxdepth 3 -name 'main.m' | head -1)" ]; then
+            echo "::warning::Unpacked template looks wrong; removing it so pygame_ios can retry."
+            find "$TEMPLATE_DIR" -maxdepth 2 | head -20
+            rm -rf "$TEMPLATE_DIR"
+            exit 0
+          fi
+
+          echo "Template staged at $TEMPLATE_DIR"
+          find "$TEMPLATE_DIR" -maxdepth 2 | head -20
+
       - name: Generate the Xcode project
         working-directory: ${{ env.APP_DIR }}
         run: |
-          set -euo pipefail
-          pygame_ios . "$ENTRY" "$PYGAME_VERSION"
+          set -uo pipefail
+          # Retry anyway: if the pre-fetch fell through, pygame_ios still has
+          # to reach the rate-limited API itself.
+          ok=0
+          for attempt in 1 2 3; do
+            echo "--- pygame_ios attempt $attempt ---"
+            if pygame_ios . "$ENTRY" "$PYGAME_VERSION"; then
+              ok=1
+              break
+            fi
+            echo "attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::pygame_ios failed after 3 attempts."
+            exit 1
+          fi
           echo "--- tree after generation ---"
           ls -la
 
