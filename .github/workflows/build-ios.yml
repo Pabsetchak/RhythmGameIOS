@@ -313,65 +313,98 @@ jobs:
         #
         # Everything here is reported before it is changed, so the log shows
         # what was actually wrong.
+        # Deliberately NOT `set -e`. An earlier version aborted here with
+        # exit code 2, which came from a *reporting* line rather than a real
+        # problem: macOS awk exits 2 on a fatal error, and it hits one on
+        # invalid multibyte sequences in filenames. Diagnostics must never
+        # fail a build, so this step checks explicitly and exits only on the
+        # conditions that actually matter. LC_ALL=C keeps every text tool
+        # byte-oriented so odd filenames cannot upset them.
+        env:
+          LC_ALL: C
         run: |
-          set -euo pipefail
+          set -uo pipefail
           PRODUCTS="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos"
           APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" | head -n 1)
-          [ -n "$APP" ] || { echo "::error::No .app to process."; exit 1; }
-
-          echo "=== before ==="
-          echo "size:     $(du -sh "$APP" | cut -f1)"
-          echo "files:    $(find "$APP" -type f | wc -l)"
-          echo "symlinks: $(find "$APP" -type l | wc -l)"
-
-          echo "--- symlinks found ---"
-          find "$APP" -type l -exec sh -c 'echo "  $1 -> $(readlink "$1")"' _ {} \; | head -40
-
-          # Replace each symlink with a real copy of what it points at.
-          find "$APP" -type l > "$RUNNER_TEMP/links.txt"
-          while IFS= read -r link; do
-            [ -n "$link" ] || continue
-            target=$(cd "$(dirname "$link")" && readlink -f "$(basename "$link")" 2>/dev/null || true)
-            if [ -n "$target" ] && [ -e "$target" ]; then
-              rm -f "$link"
-              cp -R "$target" "$link"
-              echo "  resolved: $link"
-            else
-              rm -f "$link"
-              echo "  removed broken link: $link"
-            fi
-          done < "$RUNNER_TEMP/links.txt"
-
-          # Drop stdlib the game never imports. Guarded by -maxdepth so this
-          # can only match the embedded interpreter's own lib directory.
-          for junk in test tests idlelib tkinter turtledemo lib2to3 ensurepip pydoc_data; do
-            find "$APP" -type d -name "$junk" -path "*lib/python*" -prune -exec rm -rf {} + 2>/dev/null || true
-          done
-          # Deliberately NOT removing __pycache__ here. The bundle is
-          # read-only on device, so without the precompiled stdlib Python
-          # would reparse every module on every launch and never be able to
-          # cache the result.
-          find "$APP" -type d -name "*.dist-info" -prune -exec rm -rf {} + 2>/dev/null || true
-
-          echo "=== after ==="
-          echo "size:     $(du -sh "$APP" | cut -f1)"
-          echo "files:    $(find "$APP" -type f | wc -l)"
-          LEFT=$(find "$APP" -type l | wc -l)
-          echo "symlinks: $LEFT"
-          if [ "$LEFT" -ne 0 ]; then
-            echo "::error::$LEFT symlinks remain; AFC will fail to copy the app."
-            find "$APP" -type l
+          if [ -z "$APP" ]; then
+            echo "::error::No .app to process."
             exit 1
           fi
+          echo "App: $APP"
 
-          # Names AFC tends to dislike. Reported, not fatal - so we learn
-          # whether they are actually present before treating them as a cause.
+          count_links() { find "$APP" -type l 2>/dev/null | wc -l | tr -d ' '; }
+          count_files() { find "$APP" -type f 2>/dev/null | wc -l | tr -d ' '; }
+          size_of()     { du -sh "$APP" 2>/dev/null | cut -f1; }
+
+          echo "=== before ==="
+          echo "size:     $(size_of)"
+          echo "files:    $(count_files)"
+          echo "symlinks: $(count_links)"
+
+          echo "--- symlinks (first 40) ---"
+          find "$APP" -type l 2>/dev/null > "$RUNNER_TEMP/links.txt" || true
+          sed -n '1,40p' "$RUNNER_TEMP/links.txt" 2>/dev/null | while IFS= read -r l; do
+            echo "  $l -> $(readlink "$l" 2>/dev/null)"
+          done
+          echo "  (total: $(wc -l < "$RUNNER_TEMP/links.txt" | tr -d ' '))"
+
+          # Replace each symlink with a real copy of what it points at.
+          resolved=0; dropped=0
+          while IFS= read -r link; do
+            [ -n "$link" ] || continue
+            [ -L "$link" ] || continue
+            target=$(cd "$(dirname "$link")" 2>/dev/null && readlink -f "$(basename "$link")" 2>/dev/null)
+            if [ -n "${target:-}" ] && [ -e "$target" ]; then
+              rm -f "$link" && cp -R "$target" "$link" && resolved=$((resolved + 1))
+            else
+              rm -f "$link" && dropped=$((dropped + 1))
+            fi
+          done < "$RUNNER_TEMP/links.txt"
+          echo "resolved $resolved symlink(s), removed $dropped broken one(s)"
+
+          # Drop stdlib the game never imports. The -path guard keeps this to
+          # the embedded interpreter's own lib directory.
+          for junk in test tests idlelib tkinter turtledemo lib2to3 ensurepip pydoc_data; do
+            find "$APP" -type d -name "$junk" -path "*lib/python*" -prune -exec rm -rf {} + 2>/dev/null
+          done
+          # Deliberately NOT removing __pycache__. The bundle is read-only on
+          # device, so without the precompiled stdlib Python would reparse
+          # every module on every launch and never be able to cache it.
+          find "$APP" -type d -name "*.dist-info" -prune -exec rm -rf {} + 2>/dev/null
+
+          echo "=== after ==="
+          echo "size:     $(size_of)"
+          echo "files:    $(count_files)"
+          LEFT=$(count_links)
+          echo "symlinks: $LEFT"
+
           echo "--- longest paths ---"
-          find "$APP" | awk '{ print length, $0 }' | sort -rn | head -5 | cut -d" " -f2-
+          find "$APP" 2>/dev/null | while IFS= read -r p; do
+            printf '%s %s\n' "${#p}" "$p"
+          done | sort -rn 2>/dev/null | sed -n '1,5p'
+
           echo "--- non-ASCII filenames ---"
-          find "$APP" | LC_ALL=C grep -n '[^ -~]' | head -20 || echo "  none"
-          echo "--- app must still have its executable ---"
-          test -f "$APP/$(basename "$APP" .app)" && echo "  ok" || echo "::warning::no executable at the expected path"
+          if find "$APP" 2>/dev/null | grep -c '[^ -~]' > "$RUNNER_TEMP/nonascii.txt" 2>/dev/null; then
+            echo "  count: $(cat "$RUNNER_TEMP/nonascii.txt")"
+            find "$APP" 2>/dev/null | grep '[^ -~]' 2>/dev/null | sed -n '1,10p'
+          else
+            echo "  none"
+          fi
+
+          echo "--- executable present? ---"
+          if [ -f "$APP/$(basename "$APP" .app)" ]; then
+            echo "  ok"
+          else
+            echo "::warning::no executable at the expected path"
+          fi
+
+          # The only fatal condition: a symlink AFC would refuse to copy.
+          if [ "$LEFT" -ne 0 ]; then
+            echo "::error::$LEFT symlink(s) remain; AFC will fail to copy the app."
+            find "$APP" -type l 2>/dev/null | sed -n '1,40p'
+            exit 1
+          fi
+          echo "Bundle is flat and transferable."
 
       - name: Package as .ipa
         id: package
