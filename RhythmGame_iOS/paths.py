@@ -71,7 +71,31 @@ def _detect_ios():
     return False, f"no iOS signal (sys.platform={sys.platform!r})"
 
 
-IS_IOS, IOS_REASON = _detect_ios()
+def _resolve_ios(target, detector):
+    """
+    Decide the platform, preferring a target baked in at build time.
+
+    Detection is a fallback, not the primary mechanism. A packaged build has
+    TARGET forced by CI, so on a device this never has to guess — which is
+    the whole point, since guessing wrong there is unrecoverable and silent.
+    """
+    if target == "ios":
+        return True, "build_config.TARGET == 'ios' (baked at build time)"
+    if target == "desktop":
+        return False, "build_config.TARGET == 'desktop' (baked at build time)"
+    return detector()
+
+
+def _build_target():
+    try:
+        from build_config import TARGET
+        return TARGET
+    except Exception:
+        return None
+
+
+BUILD_TARGET = _build_target()
+IS_IOS, IOS_REASON = _resolve_ios(BUILD_TARGET, _detect_ios)
 
 # Where the source and any bundled starter content live. Read-only on iOS.
 BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))

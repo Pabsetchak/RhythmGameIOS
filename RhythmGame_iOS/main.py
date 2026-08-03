@@ -174,8 +174,9 @@ def _run_desktop():
 # Module-level startup — no graphics here, only logging
 # ---------------------------------------------------------------------------- #
 diagnostics.begin({
+    "build_config.TARGET": repr(paths.BUILD_TARGET),
     "paths.IS_IOS": paths.IS_IOS,
-    "detection reason": paths.IOS_REASON,
+    "how decided": paths.IOS_REASON,
     "__name__": __name__,
     "_is_real_desktop()": _is_real_desktop(),
 })

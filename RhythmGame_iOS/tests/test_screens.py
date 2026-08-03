@@ -315,6 +315,34 @@ def main():
         tick(app, 2)
     check("dialogs", dialogs)
 
+    # -- build target overrides detection ---------------------------------- #
+    def build_target():
+        """
+        A packaged build pins its platform, so the device never guesses. The
+        detector must not even be consulted when a target is baked in.
+        """
+        import paths as p
+
+        def exploding_detector():
+            raise AssertionError("detection ran despite a pinned build target")
+
+        is_ios, why = p._resolve_ios("ios", exploding_detector)
+        assert is_ios is True, (is_ios, why)
+        assert "baked" in why, why
+
+        is_ios, why = p._resolve_ios("desktop", exploding_detector)
+        assert is_ios is False, (is_ios, why)
+
+        # With nothing pinned it falls back to sniffing the environment.
+        is_ios, why = p._resolve_ios(None, lambda: (True, "sniffed"))
+        assert is_ios is True and why == "sniffed", (is_ios, why)
+
+        # The checked-in default must stay unpinned, or desktop runs and the
+        # test suites would inherit a device configuration.
+        assert p.BUILD_TARGET is None, \
+            f"build_config.TARGET should ship as None, got {p.BUILD_TARGET!r}"
+    check("build target overrides detection", build_target)
+
     # -- degenerate display size ------------------------------------------- #
     def degenerate_layout():
         """
