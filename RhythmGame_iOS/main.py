@@ -10,30 +10,57 @@ only for desktop, and on device every frame arrives as a call to _ios_tick.
 Keep the name and module-scope placement of _ios_tick as they are — the
 template detects it by name.
 
-Anything that goes wrong is drawn on the screen rather than only printed.
-On a sideloaded build there is no console to read, and a bare exception is
-indistinguishable from a hang: both are a black screen.
+Two rules this module follows, both learned the hard way:
+
+  * Import does no graphics. Touching pygame.display before the template's
+    own SDL setup has finished can leave the screen black permanently. Every
+    display call happens inside a tick.
+  * Import does write a log file. If the screen is black there is no console
+    and no on-screen message to read, so diagnostics.py records progress to
+    Documents/boot_log.txt, readable in the Files app.
 """
 
+import os
 import sys
 import traceback
 
+import diagnostics
 import paths
 
 # Platforms where a blocking loop is the correct thing to do. Anything not on
-# this list gets the callback-driven path, so a failure to recognise iOS can
+# this list gets the callback-driven path, so failing to recognise iOS can
 # never result in the run loop being starved.
-_DESKTOP_PLATFORMS = ("win32", "linux", "linux2", "darwin", "cygwin")
+_DESKTOP_PLATFORMS = ("win32", "linux", "linux2", "cygwin", "darwin")
 
 _app = None
 _error_text = None
+_splash_shown = False
+
+
+def _is_real_desktop():
+    """
+    A blocking loop is only safe somewhere it cannot starve a UI run loop.
+
+    "darwin" is ambiguous — it covers both macOS and, on some builds, iOS —
+    so for darwin we additionally require something only macOS has.
+    """
+    if paths.IS_IOS:
+        return False
+    if sys.platform not in _DESKTOP_PLATFORMS:
+        return False
+    if sys.platform == "darwin":
+        for macos_only in ("/System/Library/CoreServices/Finder.app",
+                           "/Applications/Utilities"):
+            if os.path.isdir(macos_only):
+                return True
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------- #
-# On-device diagnostics
+# On-screen diagnostics (only ever called from inside a tick)
 # ---------------------------------------------------------------------------- #
 def _screen():
-    """A surface to draw on, creating one if the app never got that far."""
     import pygame
     if not pygame.display.get_init():
         pygame.display.init()
@@ -77,54 +104,58 @@ def _draw_message(title, body, background=(18, 6, 6), color=(255, 205, 205)):
 
         pygame.display.flip()
     except Exception:
-        # Diagnostics must never become the failure.
-        pass
-
-
-def _draw_splash():
-    """
-    Shown at import, replaced by the first real frame.
-
-    If this stays on screen it means _ios_tick is never being called, which
-    is a very different problem from the app crashing — worth being able to
-    tell apart without a debugger.
-    """
-    _draw_message(
-        "Starting…",
-        f"platform: {sys.platform}\n"
-        f"detected iOS: {paths.IS_IOS}\n"
-        f"data dir: {paths.DATA_DIR}\n\n"
-        "If this screen stays up, the frame callback is not firing.",
-        background=(10, 10, 20), color=(150, 150, 180))
+        diagnostics.exception("failed to draw on-screen message")
 
 
 # ---------------------------------------------------------------------------- #
 # Boot
 # ---------------------------------------------------------------------------- #
 def _boot():
+    diagnostics.log("boot: importing App")
     from app import App
+    diagnostics.log("boot: importing MainMenu")
     from screens.menu import MainMenu
 
+    diagnostics.log("boot: constructing App")
     instance = App()
+    diagnostics.log(f"boot: display surface = {instance.surface.get_size()}")
+    diagnostics.log("boot: setting root screen")
     instance.set_root(MainMenu(instance))
+    diagnostics.log("boot: ready")
     return instance
 
 
 def _ios_tick():
     """One frame. Called by the iOS run loop; must always return promptly."""
-    global _app, _error_text
+    global _app, _error_text, _splash_shown
 
     if _error_text is not None:
-        # Keep the failure on screen instead of reverting to black.
         _draw_message("Crashed on startup", _error_text)
         return
 
     try:
+        if not _splash_shown:
+            # First contact with the display, now that the template's own
+            # setup has certainly finished.
+            _splash_shown = True
+            diagnostics.log("tick 1 reached - the frame callback IS firing")
+            _draw_message(
+                "Starting…",
+                f"platform: {sys.platform}\n"
+                f"iOS detected: {paths.IS_IOS}\n"
+                f"reason: {paths.IOS_REASON}\n\n"
+                "Loading…",
+                background=(10, 10, 20), color=(150, 150, 180))
+            return          # let this frame present before the heavy work
+
         if _app is None:
             _app = _boot()
+
         _app.tick()
+        diagnostics.frame()
     except Exception:
         _error_text = traceback.format_exc()
+        diagnostics.exception("exception in _ios_tick")
         traceback.print_exc()
         _draw_message("Crashed on startup", _error_text)
 
@@ -139,13 +170,29 @@ def _run_desktop():
         app.shutdown()
 
 
-paths.ensure_dirs()
+# ---------------------------------------------------------------------------- #
+# Module-level startup — no graphics here, only logging
+# ---------------------------------------------------------------------------- #
+diagnostics.begin({
+    "paths.IS_IOS": paths.IS_IOS,
+    "detection reason": paths.IOS_REASON,
+    "__name__": __name__,
+    "_is_real_desktop()": _is_real_desktop(),
+})
 
-if paths.IS_IOS:
-    _draw_splash()
-elif __name__ == "__main__" and sys.platform in _DESKTOP_PLATFORMS:
+try:
+    paths.ensure_dirs()
+    diagnostics.log(f"data dir ready: {paths.DATA_DIR}")
+except Exception:
+    diagnostics.exception("ensure_dirs failed")
+
+if _is_real_desktop() and __name__ == "__main__":
+    diagnostics.log("taking the DESKTOP path (blocking loop)")
     try:
         _run_desktop()
     except KeyboardInterrupt:
         pass
     sys.exit(0)
+else:
+    diagnostics.log("taking the CALLBACK path - waiting for _ios_tick")
+    diagnostics.log(f"_ios_tick defined at module scope: {'_ios_tick' in globals()}")

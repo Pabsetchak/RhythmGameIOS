@@ -19,44 +19,59 @@ import sys
 
 def _detect_ios():
     """
-    Are we running on an iOS device?
+    Are we running on an iOS device? Returns (is_ios, reason).
 
     Getting this wrong is not cosmetic. If it returns False on device, main.py
     takes the desktop path and enters a blocking `while running:` loop, which
     starves the run loop iOS owns — the app shows a black screen and is then
     killed by the watchdog. So this checks several independent signals rather
-    than trusting any single one.
+    than trusting any single one, and reports which fired so the boot log can
+    show its working.
 
     Python 3.13 reports sys.platform == "ios" (PEP 730), but the embedded
     interpreter in an app template is not guaranteed to be built that way.
     """
     if sys.platform == "ios":
-        return True
+        return True, "sys.platform == 'ios'"
     if getattr(sys, "_ios", False):
-        return True
+        return True, "sys._ios"
     try:
         if platform.system() in ("iOS", "iPadOS"):
-            return True
+            return True, f"platform.system() == {platform.system()!r}"
     except Exception:
         pass
     try:
         machine = os.uname().machine
         if machine.startswith(("iPhone", "iPad", "iPod")):
-            return True
+            return True, f"uname().machine == {machine!r}"
     except Exception:
         pass
-    # Both the normal install location and the live-container one put the
-    # bundle under a /Containers/.../*.app path that cannot occur on macOS.
-    here = os.path.abspath(__file__)
-    if "/Containers/" in here and ".app/" in here:
-        return True
-    # UIKit sandboxes always have this; macOS never does.
-    if os.path.isdir("/var/mobile/Containers") or os.path.isdir("/private/var/mobile"):
-        return True
-    return False
+
+    # Sandbox path shape. Note the case: the *bundle* lives under
+    # /private/var/containers/Bundle/Application/... (lowercase), while the
+    # *data* container is /private/var/mobile/Containers/Data/Application/...
+    # (capital). Matching only the capital form misses every normal install,
+    # so compare case-insensitively.
+    here = os.path.abspath(__file__).replace("\\", "/").lower()
+    if "/containers/" in here and ".app/" in here:
+        return True, "bundle path is inside an iOS container"
+    if "/var/mobile/" in here or "/var/containers/" in here:
+        return True, "source lives under /var/mobile or /var/containers"
+
+    # Directories that exist on a UIKit device and never on macOS. These can
+    # fail closed under sandbox restrictions, which is why they come last.
+    for probe in ("/var/mobile/Containers", "/private/var/mobile",
+                  "/private/var/containers", "/System/Library/PrivateFrameworks/UIKitCore.framework"):
+        try:
+            if os.path.isdir(probe):
+                return True, f"{probe} exists"
+        except Exception:
+            pass
+
+    return False, f"no iOS signal (sys.platform={sys.platform!r})"
 
 
-IS_IOS = _detect_ios()
+IS_IOS, IOS_REASON = _detect_ios()
 
 # Where the source and any bundled starter content live. Read-only on iOS.
 BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))

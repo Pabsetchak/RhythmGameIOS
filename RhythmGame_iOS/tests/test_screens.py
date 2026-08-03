@@ -315,6 +315,27 @@ def main():
         tick(app, 2)
     check("dialogs", dialogs)
 
+    # -- degenerate display size ------------------------------------------- #
+    def degenerate_layout():
+        """
+        On iOS, set_mode((0,0)) can hand back a 0x0 surface. A layout built
+        from that puts every control off-screen and renders pure black with
+        no exception — indistinguishable from a hang. Layout must refuse to
+        be degenerate.
+        """
+        import platform_compat
+        for w, h in ((0, 0), (0, 800), (300, 0), (-5, -5)):
+            lay = platform_compat.Layout(w, h)
+            assert lay.width >= 320 and lay.height >= 480, \
+                f"Layout({w},{h}) -> {lay.width}x{lay.height}"
+            assert lay.scale > 0, f"Layout({w},{h}) scale={lay.scale}"
+            assert lay.content_width > 0, f"Layout({w},{h}) content_width={lay.content_width}"
+            assert lay.content_height > 0, f"Layout({w},{h}) content_height={lay.content_height}"
+        # A normal size must be passed through untouched.
+        lay = platform_compat.Layout(430, 860)
+        assert (lay.width, lay.height) == (430, 860), (lay.width, lay.height)
+    check("degenerate display size", degenerate_layout)
+
     # -- entry point contract ---------------------------------------------- #
     def entry_point():
         """

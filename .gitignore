@@ -79,3 +79,7 @@ Thumbs.db
 RhythmGame_iOS/pygame-ios/
 *.xcuserstate
 xcuserdata/
+
+# Boot diagnostics written at runtime.
+boot_log.txt
+**/boot_log.txt

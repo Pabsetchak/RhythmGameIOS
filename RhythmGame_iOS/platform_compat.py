@@ -26,8 +26,12 @@ class Layout:
     """Screen geometry plus the safe-area insets to keep UI clear of."""
 
     def __init__(self, width, height):
-        self.width = width
-        self.height = height
+        # A degenerate size would put every control off-screen and render a
+        # perfectly black display with no error to show for it. Refuse to
+        # build a layout smaller than something usable.
+        self.width = max(int(width), 320)
+        self.height = max(int(height), 480)
+        width, height = self.width, self.height
         self.scale = max(MIN_SCALE, min(MAX_SCALE, width / REF_WIDTH))
 
         # SDL doesn't surface UIKit's safe-area insets, so infer them. A tall
@@ -68,20 +72,83 @@ class Layout:
         return self.content_right - self.content_left
 
 
+def native_size():
+    """The device screen size, or None if it can't be determined."""
+    try:
+        sizes = pygame.display.get_desktop_sizes()
+        if sizes and sizes[0][0] > 0 and sizes[0][1] > 0:
+            return tuple(sizes[0])
+    except Exception:
+        pass
+    try:
+        info = pygame.display.Info()
+        if info.current_w > 0 and info.current_h > 0:
+            return (info.current_w, info.current_h)
+    except Exception:
+        pass
+    return None
+
+
+def _usable(surface):
+    return (surface is not None
+            and surface.get_width() >= 100 and surface.get_height() >= 100)
+
+
 def init_display():
     """
     Open the window (or take over the device screen) and return
     (surface, Layout).
+
+    On desktop, set_mode((0, 0)) means "use the desktop resolution". On iOS
+    that is not dependable — SDL can return a 0x0 surface, which draws a
+    perfectly black screen and raises nothing, so it looks identical to a
+    hang. Ask for the real screen size first and only fall back to (0, 0),
+    checking that whatever comes back is actually usable.
     """
-    if IS_IOS:
-        # (0, 0) asks SDL for the full native resolution.
-        surface = pygame.display.set_mode((0, 0))
-    else:
+    import diagnostics
+
+    if not IS_IOS:
         surface = pygame.display.set_mode(DEV_SIZE, pygame.RESIZABLE)
         pygame.display.set_caption("Rhythm Game")
+        return surface, Layout(*surface.get_size())
 
-    w, h = surface.get_size()
-    return surface, Layout(w, h)
+    if not pygame.display.get_init():
+        pygame.display.init()
+
+    native = native_size()
+    diagnostics.log(f"display: native_size() = {native}")
+
+    attempts = []
+    if native:
+        attempts.append((native, pygame.FULLSCREEN))
+        attempts.append((native, 0))
+    attempts.append(((0, 0), pygame.FULLSCREEN))
+    attempts.append(((0, 0), 0))
+
+    surface = None
+    for size, flags in attempts:
+        try:
+            candidate = pygame.display.set_mode(size, flags)
+        except Exception as e:
+            diagnostics.log(f"display: set_mode({size}, {flags}) raised {e!r}")
+            continue
+        got = candidate.get_size() if candidate else None
+        diagnostics.log(f"display: set_mode({size}, {flags}) -> {got}")
+        if _usable(candidate):
+            surface = candidate
+            break
+
+    if surface is None:
+        # Nothing produced a usable surface. Take the last one anyway so the
+        # app can still run and report the problem rather than dying here.
+        surface = pygame.display.get_surface()
+        diagnostics.log(f"display: falling back to {surface and surface.get_size()}")
+
+    w, h = surface.get_size() if surface else (0, 0)
+    layout = Layout(w, h)
+    diagnostics.log(f"display: surface {w}x{h}, layout "
+                    f"{layout.width}x{layout.height} scale={layout.scale:.2f}")
+    return surface, layout
 
 
 def audio_buffer_default():
