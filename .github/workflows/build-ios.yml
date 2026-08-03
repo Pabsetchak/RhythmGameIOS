@@ -120,6 +120,13 @@ jobs:
           rm -rf assets/hits_v*
           echo "--- shipping ---"
           find . -type f | sort
+          # Record every module that must survive into the bundle. A missing
+          # one would raise ImportError inside __main__, which on device is a
+          # black screen with no log at all - so this is checked rather than
+          # assumed.
+          find . -name "*.py" | sed 's|^\./||' | sort > "$RUNNER_TEMP/expected_modules.txt"
+          echo "--- modules that must reach the bundle ---"
+          cat "$RUNNER_TEMP/expected_modules.txt"
 
       - name: Pin the build target to iOS
         # The packaged app must never try to work out its own platform.
@@ -264,14 +271,32 @@ jobs:
             exit 1
           fi
           echo "build target pinned in the bundle: ok"
-          for required in __main__.py app.py ui.py touch.py road.py screens/play.py screens/editor.py; do
-            if [ ! -f "$STAGED/$required" ]; then
-              echo "::error::Missing $required in the staged bundle."
-              find "$STAGED" -type f -name "*.py" | sort
-              exit 1
+
+          # Every module recorded before staging must be present. main.py is
+          # renamed to __main__.py by pygame_ios.
+          missing=0
+          while IFS= read -r rel; do
+            [ -n "$rel" ] || continue
+            want="$rel"
+            [ "$rel" = "main.py" ] && want="__main__.py"
+            if [ ! -f "$STAGED/$want" ]; then
+              echo "::error::Missing $want in the staged bundle."
+              missing=1
             fi
-          done
-          echo "All required sources are present."
+          done < "$RUNNER_TEMP/expected_modules.txt"
+
+          if [ "$missing" -ne 0 ]; then
+            echo "--- what actually made it ---"
+            find "$STAGED" -name "*.py" | sed "s|^$STAGED/||" | sort
+            exit 1
+          fi
+          echo "All $(wc -l < "$RUNNER_TEMP/expected_modules.txt" | tr -d ' ') modules are present."
+
+          # main.py must not also be there under its old name, or the module
+          # would exist twice and the wrong one could shadow __main__.
+          if [ -f "$STAGED/main.py" ]; then
+            echo "::warning::both main.py and __main__.py are present in the bundle"
+          fi
 
       - name: Locate the Xcode project
         id: locate
@@ -294,12 +319,33 @@ jobs:
         # Portrait-only (the whole UI is laid out for it) and file sharing on,
         # so the app's folder appears in Files for moving songs and charts in
         # and out without a desktop.
+        #
+        # The template's file is named pygame-ios-Info.plist, which a plain
+        # `find -name Info.plist` does not match. An earlier version of this
+        # step therefore configured nothing - or, worse, could have picked up
+        # a framework's own Info.plist. Search by suffix, exclude anything
+        # inside a framework, and treat "not found" as fatal: silently
+        # skipping is exactly how this went unnoticed.
         run: |
           set -euo pipefail
-          PLIST=$(find "$APP_DIR" -name "Info.plist" -not -path "*/build/*" | head -n 1)
+          echo "--- candidate plists ---"
+          find "$APP_DIR" -name "*Info.plist" -not -path "*/build/*" | head -20
+
+          PLIST=$(find "$APP_DIR" -name "*-Info.plist" \
+                    -not -path "*/build/*" \
+                    -not -path "*.framework/*" \
+                    -not -path "*.xcframework/*" \
+                    -not -name "dylib-Info-template.plist" | head -n 1)
           if [ -z "$PLIST" ]; then
-            echo "::warning::No Info.plist found; skipping configuration."
-            exit 0
+            PLIST=$(find "$APP_DIR" -name "Info.plist" \
+                      -not -path "*/build/*" \
+                      -not -path "*.framework/*" \
+                      -not -path "*.xcframework/*" | head -n 1)
+          fi
+          if [ -z "$PLIST" ]; then
+            echo "::error::No app Info.plist found; file sharing and orientation would be unset."
+            find "$APP_DIR" -name "*.plist" | head -30
+            exit 1
           fi
           echo "Configuring $PLIST"
           pb() { /usr/libexec/PlistBuddy -c "$1" "$PLIST" 2>/dev/null || true; }
@@ -340,6 +386,49 @@ jobs:
             CODE_SIGN_ENTITLEMENTS="" \
             ONLY_ACTIVE_ARCH=NO \
             build
+
+      - name: Enforce Info.plist settings on the built app
+        # Patching the source plist relies on having found the right file and
+        # on Xcode copying it through. This checks the plist that actually
+        # ships, fixes it in place if needed, and fails if the settings still
+        # are not there. Without UIFileSharingEnabled the app's folder never
+        # appears in the Files app, so the boot log is unreachable and the
+        # app looks like it did nothing at all.
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" | head -n 1)
+          [ -n "$APP" ] || { echo "::error::No .app found."; exit 1; }
+          PLIST="$APP/Info.plist"
+          [ -f "$PLIST" ] || { echo "::error::Built app has no Info.plist."; exit 1; }
+
+          echo "--- as built ---"
+          plutil -p "$PLIST" | grep -iE "FileSharing|DocumentsInPlace|Orientation|RequiresFullScreen|BundleIdentifier|MainModule" || true
+
+          pb() { /usr/libexec/PlistBuddy -c "$1" "$PLIST" 2>/dev/null || true; }
+          for key in UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace UIRequiresFullScreen; do
+            pb "Delete :$key"
+            pb "Add :$key bool true"
+          done
+          pb "Delete :UISupportedInterfaceOrientations"
+          pb "Add :UISupportedInterfaceOrientations array"
+          pb "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait"
+
+          echo "--- after patching ---"
+          plutil -p "$PLIST" | grep -iE "FileSharing|DocumentsInPlace|Orientation|RequiresFullScreen" || true
+
+          missing=0
+          for key in UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace; do
+            value=$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || echo "")
+            echo "$key = ${value:-<unset>}"
+            [ "$value" = "true" ] || missing=1
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::File sharing is not enabled; the app's folder would be invisible in Files."
+            exit 1
+          fi
+          plutil -lint "$PLIST"
+          echo "Info.plist verified on the built app."
 
       - name: Strip build intermediates from the bundle
         # The template's pygame-ce build ships meson's intermediate output:
