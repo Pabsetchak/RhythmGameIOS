@@ -71,13 +71,20 @@ class App:
     def __init__(self):
         paths.ensure_dirs()
 
-        # Mixer before display: pygame only honours the buffer size on a
-        # fresh init, and the audio device must be up before any Sound loads.
-        import audio
-        audio.init_audio()
-
+        # Core first. The desktop build initialised the mixer before
+        # pygame.init(), which worked there, but on iOS the audio session is
+        # set up by the same SDL init and calling into the mixer first is a
+        # good way to fail before anything is on screen.
         pygame.init()
         self.surface, self.layout = platform_compat.init_display()
+
+        # Audio is desirable, not essential. A device that refuses to open
+        # should leave you with a silent game, not no game.
+        try:
+            import audio
+            audio.init_audio()
+        except Exception as e:
+            print(f"Audio unavailable, continuing without it: {e}")
         fonts.set_scale(self.layout.scale)
         palette.refresh()
 

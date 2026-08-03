@@ -12,12 +12,51 @@ both platforms.
 """
 
 import os
+import platform
 import shutil
 import sys
 
-# Python 3.13 reports "ios" here (PEP 730). Keep a couple of fallbacks so
-# the check still works on other builds.
-IS_IOS = sys.platform == "ios" or getattr(sys, "_ios", False)
+
+def _detect_ios():
+    """
+    Are we running on an iOS device?
+
+    Getting this wrong is not cosmetic. If it returns False on device, main.py
+    takes the desktop path and enters a blocking `while running:` loop, which
+    starves the run loop iOS owns — the app shows a black screen and is then
+    killed by the watchdog. So this checks several independent signals rather
+    than trusting any single one.
+
+    Python 3.13 reports sys.platform == "ios" (PEP 730), but the embedded
+    interpreter in an app template is not guaranteed to be built that way.
+    """
+    if sys.platform == "ios":
+        return True
+    if getattr(sys, "_ios", False):
+        return True
+    try:
+        if platform.system() in ("iOS", "iPadOS"):
+            return True
+    except Exception:
+        pass
+    try:
+        machine = os.uname().machine
+        if machine.startswith(("iPhone", "iPad", "iPod")):
+            return True
+    except Exception:
+        pass
+    # Both the normal install location and the live-container one put the
+    # bundle under a /Containers/.../*.app path that cannot occur on macOS.
+    here = os.path.abspath(__file__)
+    if "/Containers/" in here and ".app/" in here:
+        return True
+    # UIKit sandboxes always have this; macOS never does.
+    if os.path.isdir("/var/mobile/Containers") or os.path.isdir("/private/var/mobile"):
+        return True
+    return False
+
+
+IS_IOS = _detect_ios()
 
 # Where the source and any bundled starter content live. Read-only on iOS.
 BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -315,6 +315,22 @@ def main():
         tick(app, 2)
     check("dialogs", dialogs)
 
+    # -- entry point contract ---------------------------------------------- #
+    def entry_point():
+        """
+        pygame-ios finds the frame callback by name at module scope. If it is
+        renamed or nested the app builds fine and then shows a black screen,
+        so guard the contract here.
+        """
+        import main as entry
+        assert hasattr(entry, "_ios_tick"), "_ios_tick is missing"
+        assert callable(entry._ios_tick), "_ios_tick is not callable"
+        # Importing must not have started a blocking loop, and must not have
+        # taken the desktop path on a device.
+        assert entry._app is None, "importing main should not boot the app"
+        assert hasattr(entry, "_draw_message"), "no on-device error reporting"
+    check("entry point contract", entry_point)
+
     # -- toast ------------------------------------------------------------- #
     def toast():
         app.toast("Hello there")

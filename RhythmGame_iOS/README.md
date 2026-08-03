@@ -251,13 +251,44 @@ python tests/test_screens.py   # boots every screen, drives real gestures
 
 ---
 
-## If the build fails
+## If it fails
 
-- **No `.xcodeproj` generated** — the pygame-ce version probably has no
-  template. Check the "Report available templates" step in the log and re-run
-  with a listed version.
-- **App launches then dies** — look at the Xcode console. `main.py` catches
-  and prints startup tracebacks rather than letting them vanish.
+### "Failed to Sign …/libsurface.dylib.p/surface.c.o", or ldid asserts
+
+```
+ldid.cpp(869): _assert(): filetype == MH_EXECUTE || MH_DYLIB || MH_DYLINKER || MH_BUNDLE
+```
+
+**Fixed in the build — rebuild and use the new IPA.**
+
+The template's pygame-ce build shipped meson's intermediate output inside the
+bundle: directories named `*.dylib.p` / `*.a.p` full of `.c.o` object files,
+plus `.a` static archives. Nothing loads them at runtime, but every signing
+tool walks the bundle and signs each Mach-O file it finds. An object file is
+`MH_OBJECT`, which is not one of the four types ldid accepts, so it asserts
+and the install fails. The workflow now deletes them before packaging and
+fails the build if any survive.
+
+### Black screen on launch
+
+Also addressed. Two causes were possible and both are handled:
+
+- If iOS wasn't detected, `main.py` took the desktop path and entered a
+  blocking loop, starving the run loop iOS owns. Detection now checks five
+  independent signals, and the blocking loop only runs on an explicit
+  desktop allowlist.
+- A startup exception used to be printed to a console you can't see. It is
+  now **drawn on the screen**, so you can read (or photograph) the traceback
+  on the device.
+
+If you now see a screen reading **"Starting…"** that never changes, the frame
+callback isn't firing — that's a different problem from a crash, and the
+splash exists to tell the two apart.
+
+### Other
+
+- **No `.xcodeproj` generated** — the pygame-ce version has no template. Only
+  `2.5.5` and `2.5.6` exist; the workflow rejects anything else up front.
 - **Silence but the game runs** — MP3 decoding is missing from this
   SDL2_mixer build. Convert to OGG; the app already accepts it.
 - **Notes feel consistently early or late** — Settings → Calibrate. Use the

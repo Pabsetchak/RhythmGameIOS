@@ -219,6 +219,56 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             build
 
+      - name: Strip build intermediates from the bundle
+        # The template's pygame-ce build ships meson's intermediate output:
+        # directories named *.dylib.p / *.a.p full of .c.o object files, plus
+        # .a static archives. Nothing loads them at runtime, but every
+        # signing tool walks the bundle and tries to sign each Mach-O file it
+        # finds. An object file is MH_OBJECT, which is not one of the four
+        # types ldid accepts, so it asserts and the install fails:
+        #
+        #   _assert(): filetype == MH_EXECUTE || MH_DYLIB || MH_DYLINKER || MH_BUNDLE
+        #
+        # Removing them makes the bundle signable (and much smaller).
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" | head -n 1)
+          [ -n "$APP" ] || { echo "::error::No .app to strip."; exit 1; }
+
+          echo "Before: $(du -sh "$APP" | cut -f1)"
+          echo "Intermediate dirs found: $(find "$APP" -type d -name "*.p" | wc -l)"
+          echo "Object files found:      $(find "$APP" -type f -name "*.o" | wc -l)"
+          echo "Static archives found:   $(find "$APP" -type f -name "*.a" | wc -l)"
+
+          find "$APP" -type d -name "*.p" -prune -exec rm -rf {} +
+          find "$APP" -type f \( -name "*.o" -o -name "*.a" \) -delete
+
+          echo "After:  $(du -sh "$APP" | cut -f1)"
+
+          # Nothing unsignable may remain, or the install fails on device.
+          LEFT=$(find "$APP" \( -type d -name "*.p" \) -o \( -type f \( -name "*.o" -o -name "*.a" \) \) | wc -l)
+          if [ "$LEFT" -ne 0 ]; then
+            echo "::error::$LEFT build intermediates survived the strip."
+            find "$APP" \( -type d -name "*.p" \) -o \( -type f \( -name "*.o" -o -name "*.a" \) \)
+            exit 1
+          fi
+
+          echo "--- Mach-O types remaining in the bundle ---"
+          find "$APP" -type f | while read -r f; do
+            desc=$(file -b "$f" 2>/dev/null || true)
+            case "$desc" in
+              *Mach-O*) echo "$desc" | sed 's/ (for architecture.*//' ;;
+            esac
+          done | sort | uniq -c | sort -rn
+
+          # An object file anywhere is what breaks ldid; fail loudly if one is left.
+          if find "$APP" -type f -exec sh -c 'file -b "$1" 2>/dev/null | grep -q "Mach-O.*object"' _ {} \; -print | grep -q .; then
+            echo "::error::A Mach-O object file is still present; ldid will refuse to sign."
+            exit 1
+          fi
+          echo "No object files remain - bundle is signable."
+
       - name: Package as .ipa
         id: package
         run: |
