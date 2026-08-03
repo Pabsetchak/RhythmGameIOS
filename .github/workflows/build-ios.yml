@@ -299,6 +299,80 @@ jobs:
           fi
           echo "No object files remain - bundle is signable."
 
+      - name: Make the bundle transferable (AFC)
+        # SideStore copies the app to the device over AFC (Apple File
+        # Conduit). "AFC was unable to manage files on the device" means the
+        # transfer failed, not the signature. The usual culprits:
+        #
+        #   symlinks   macOS-style frameworks are full of them
+        #              (Versions/Current -> A). iOS bundles must be flat, and
+        #              AFC will not recreate links on the device.
+        #   bulk       the embedded CPython ships its own test suite and
+        #              tkinter/idlelib, which this app never imports - tens of
+        #              MB and thousands of files, some with awkward names.
+        #
+        # Everything here is reported before it is changed, so the log shows
+        # what was actually wrong.
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos"
+          APP=$(find "$PRODUCTS" -maxdepth 1 -name "*.app" | head -n 1)
+          [ -n "$APP" ] || { echo "::error::No .app to process."; exit 1; }
+
+          echo "=== before ==="
+          echo "size:     $(du -sh "$APP" | cut -f1)"
+          echo "files:    $(find "$APP" -type f | wc -l)"
+          echo "symlinks: $(find "$APP" -type l | wc -l)"
+
+          echo "--- symlinks found ---"
+          find "$APP" -type l -exec sh -c 'echo "  $1 -> $(readlink "$1")"' _ {} \; | head -40
+
+          # Replace each symlink with a real copy of what it points at.
+          find "$APP" -type l > "$RUNNER_TEMP/links.txt"
+          while IFS= read -r link; do
+            [ -n "$link" ] || continue
+            target=$(cd "$(dirname "$link")" && readlink -f "$(basename "$link")" 2>/dev/null || true)
+            if [ -n "$target" ] && [ -e "$target" ]; then
+              rm -f "$link"
+              cp -R "$target" "$link"
+              echo "  resolved: $link"
+            else
+              rm -f "$link"
+              echo "  removed broken link: $link"
+            fi
+          done < "$RUNNER_TEMP/links.txt"
+
+          # Drop stdlib the game never imports. Guarded by -maxdepth so this
+          # can only match the embedded interpreter's own lib directory.
+          for junk in test tests idlelib tkinter turtledemo lib2to3 ensurepip pydoc_data; do
+            find "$APP" -type d -name "$junk" -path "*lib/python*" -prune -exec rm -rf {} + 2>/dev/null || true
+          done
+          # Deliberately NOT removing __pycache__ here. The bundle is
+          # read-only on device, so without the precompiled stdlib Python
+          # would reparse every module on every launch and never be able to
+          # cache the result.
+          find "$APP" -type d -name "*.dist-info" -prune -exec rm -rf {} + 2>/dev/null || true
+
+          echo "=== after ==="
+          echo "size:     $(du -sh "$APP" | cut -f1)"
+          echo "files:    $(find "$APP" -type f | wc -l)"
+          LEFT=$(find "$APP" -type l | wc -l)
+          echo "symlinks: $LEFT"
+          if [ "$LEFT" -ne 0 ]; then
+            echo "::error::$LEFT symlinks remain; AFC will fail to copy the app."
+            find "$APP" -type l
+            exit 1
+          fi
+
+          # Names AFC tends to dislike. Reported, not fatal - so we learn
+          # whether they are actually present before treating them as a cause.
+          echo "--- longest paths ---"
+          find "$APP" | awk '{ print length, $0 }' | sort -rn | head -5 | cut -d" " -f2-
+          echo "--- non-ASCII filenames ---"
+          find "$APP" | LC_ALL=C grep -n '[^ -~]' | head -20 || echo "  none"
+          echo "--- app must still have its executable ---"
+          test -f "$APP/$(basename "$APP" .app)" && echo "  ok" || echo "::warning::no executable at the expected path"
+
       - name: Package as .ipa
         id: package
         run: |
@@ -320,7 +394,10 @@ jobs:
 
           NAME=$(basename "$APP" .app)
           IPA="$RUNNER_TEMP/${NAME}-unsigned.ipa"
-          (cd "$STAGE" && zip -qry "$IPA" Payload)
+          # No -y: that would store symlinks *as* symlinks, reintroducing the
+          # very thing AFC cannot copy. Without it zip follows them and
+          # stores real file contents.
+          (cd "$STAGE" && zip -qr "$IPA" Payload)
 
           echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
           echo "name=${NAME}-unsigned" >> "$GITHUB_OUTPUT"

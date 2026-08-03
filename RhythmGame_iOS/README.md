@@ -269,6 +269,27 @@ tool walks the bundle and signs each Mach-O file it finds. An object file is
 and the install fails. The workflow now deletes them before packaging and
 fails the build if any survive.
 
+### "AFC was unable to manage files on the device"
+
+AFC is Apple File Conduit, the protocol the sideloader uses to copy the app
+onto the device. This is a **transfer** failure, not a signing one — the
+signature is fine, something in the bundle won't copy.
+
+Addressed in the build: macOS-style frameworks are full of symlinks
+(`Versions/Current -> A`), iOS bundles must be flat, and AFC will not
+recreate links on the device. The build now resolves every symlink into a
+real file, fails if any survive, and no longer passes `zip -y` (which would
+have stored them as links again). It also drops stdlib the game never
+imports — `test`, `tkinter`, `idlelib` and friends — which is tens of MB and
+thousands of files.
+
+If it persists after a rebuild, the cause is usually on the device rather
+than in the IPA:
+
+- **Storage.** AFC needs room to stage the app. Free a few GB.
+- **Pairing.** Restart the device, then re-run the sideloader.
+- **A half-installed copy.** Delete any existing Rhythm app first.
+
 ### Black screen on launch
 
 Also addressed. Two causes were possible and both are handled:
